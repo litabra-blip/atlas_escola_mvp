@@ -35,7 +35,8 @@ if prompt := st.chat_input("Como posso ajudar a comunidade hoje?"):
     # Chamada segura para o Hugging Face usando Secrets
     if "HF_TOKEN" in st.secrets:
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
-        api_url = f"https://api-inference.huggingface.co/models/{modelo}"
+        # URL ATUALIZADA AQUI:
+        api_url = f"https://router.huggingface.co/hf-inference/models/{modelo}"
         
         try:
             payload = {"inputs": f"{instrucao}\nUsuário: {prompt}\nAgente:", "parameters": {"max_new_tokens": 500}}
@@ -43,8 +44,12 @@ if prompt := st.chat_input("Como posso ajudar a comunidade hoje?"):
             response_json = response.json()
             
             if response.status_code == 200:
-                full_text = response_json[0]['generated_text']
-                # Tenta limpar a resposta para mostrar apenas o que a IA falou
+                # Trata a resposta que pode vir como lista ou dicionário
+                if isinstance(response_json, list):
+                    full_text = response_json[0]['generated_text']
+                else:
+                    full_text = response_json['generated_text']
+                
                 resposta = full_text.split("Agente:")[-1].strip()
                 with st.chat_message("assistant"):
                     st.markdown(resposta)
