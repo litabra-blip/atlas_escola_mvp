@@ -1,22 +1,16 @@
 import streamlit as st
 import requests
 
-# 1. Configuração da Página
 st.set_page_config(page_title="Atlas IA MVP", page_icon="🌍")
 
 st.title("🚀 Plataforma Atlas - Camaquã")
 st.subheader("Transformando jovens em criadores de IA")
 
-# 2. Configurações na Sidebar
+# Sidebar
 st.sidebar.header("Configurações")
-# Modelos com altíssima disponibilidade na API gratuita
-modelos_disponiveis = {
-    "Zephyr 7B (Alta Estabilidade)": "HuggingFaceH4/zephyr-7b-beta",
-    "Mistral 7B v0.3": "mistralai/Mistral-7B-Instruct-v0.3",
-    "Gemma 2 9B": "google/gemma-2-9b-it"
-}
-escolha = st.sidebar.selectbox("Escolha o Cérebro:", list(modelos_disponiveis.keys()))
-id_modelo = modelos_disponiveis[escolha]
+# Mistral v0.2 é o modelo mais estável para a API Gratuita (Serverless)
+id_modelo = "mistralai/Mistral-7B-Instruct-v0.2"
+st.sidebar.info(f"Modelo Ativo: {id_modelo}")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -31,44 +25,41 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
         st.markdown(prompt)
 
     if "HF_TOKEN" in st.secrets:
-        # URL do Router (Obrigatória)
-        api_url = f"https://router.huggingface.co/hf-inference/models/{id_modelo}"
+        # Usando a URL de inferência direta (mais compatível com tokens grátis)
+        api_url = f"https://api-inference.huggingface.co/models/{id_modelo}"
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
         
-        # Formato de prompt universal
         payload = {
-            "inputs": f"<|system|>\nVocê é o Agente Atlas de Camaquã/RS. Responda em Português.</s>\n<|user|>\n{prompt}</s>\n<|assistant|>\n",
-            "parameters": {"max_new_tokens": 500, "temperature": 0.7}
+            "inputs": f"<s>[INST] Você é o Agente Atlas de Camaquã/RS. Responda em Português: {prompt} [/INST]",
+            "parameters": {"max_new_tokens": 500, "wait_for_model": True}
         }
 
         try:
-            with st.spinner("Conectando ao Atlas..."):
+            with st.spinner("Atlas está processando..."):
                 response = requests.post(api_url, headers=headers, json=payload)
                 
+                # Se der 410 (o erro anterior), forçamos o Router manualmente aqui
+                if response.status_code == 410:
+                    api_url = f"https://router.huggingface.co/hf-inference/models/{id_modelo}"
+                    response = requests.post(api_url, headers=headers, json=payload)
+
                 if response.status_code == 200:
                     res_json = response.json()
-                    
-                    if isinstance(res_json, list):
-                        resposta = res_json[0].get('generated_text', '')
-                    else:
-                        resposta = res_json.get('generated_text', '')
-                    
-                    # Limpeza para o Zephyr/Mistral
-                    if "<|assistant|>" in resposta:
-                        resposta = resposta.split("<|assistant|>")[-1].strip()
+                    output = res_json[0].get('generated_text', '') if isinstance(res_json, list) else res_json.get('generated_text', '')
+                    # Limpa a resposta para mostrar só o que vem depois do [/INST]
+                    resposta = output.split("[/INST]")[-1].strip()
                     
                     with st.chat_message("assistant"):
                         st.markdown(resposta)
                         st.session_state.messages.append({"role": "assistant", "content": resposta})
                 
                 elif response.status_code == 503:
-                    st.warning("O servidor está ligando a IA. Aguarde 20 segundos e tente enviar novamente.")
-                elif response.status_code == 404:
-                    st.error(f"O modelo {id_modelo} não está disponível agora. Tente o Zephyr na barra lateral.")
+                    st.warning("O modelo está sendo preparado. Aguarde 30 segundos e tente enviar novamente.")
                 else:
-                    st.error(f"Erro {response.status_code}: {response.text}")
+                    st.error(f"Status {response.status_code}: {response.text}")
                     
         except Exception as e:
             st.error(f"Erro de conexão: {e}")
     else:
-        st.warning("Verifique o HF_TOKEN nos Secrets do Streamlit.")
+        st.warning("Erro: HF_TOKEN não encontrado nos Secrets do Streamlit.")
+        
