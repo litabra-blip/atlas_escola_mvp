@@ -30,6 +30,7 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
         st.markdown(prompt)
 
     if "HF_TOKEN" in st.secrets:
+        # ENDEREÇO OBRIGATÓRIO (ROUTER)
         api_url = f"https://router.huggingface.co/hf-inference/models/{id_modelo}"
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
         
@@ -40,24 +41,28 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
 
         try:
             with st.spinner("Conectando ao Atlas..."):
+                # Chamada direta para o Router
                 response = requests.post(api_url, headers=headers, json=payload)
                 
-                if response.status_code == 404:
-                    api_url_fallback = f"https://api-inference.huggingface.co/models/{id_modelo}"
-                    response = requests.post(api_url_fallback, headers=headers, json=payload)
-
                 if response.status_code == 200:
                     res_json = response.json()
-                    resposta = res_json[0].get('generated_text', '') if isinstance(res_json, list) else res_json.get('generated_text', '')
+                    # O Router pode retornar lista ou dicionário
+                    if isinstance(res_json, list):
+                        resposta = res_json[0].get('generated_text', 'Sem resposta.')
+                    else:
+                        resposta = res_json.get('generated_text', 'Erro no formato.')
+                    
                     with st.chat_message("assistant"):
                         st.markdown(resposta)
                         st.session_state.messages.append({"role": "assistant", "content": resposta})
+                
                 elif response.status_code == 503:
-                    st.warning("O modelo está acordando. Tente novamente em 15 segundos.")
+                    st.warning("IA carregando... Tente novamente em 15 segundos.")
                 else:
+                    # Mostra o erro exato para diagnóstico
                     st.error(f"Erro {response.status_code}: {response.text}")
                     
         except Exception as e:
             st.error(f"Erro de conexão: {e}")
     else:
-        st.warning("Verifique o HF_TOKEN nos Secrets do Streamlit.")
+        st.warning("Configure o HF_TOKEN nos Secrets do Streamlit.")
