@@ -9,7 +9,6 @@ st.subheader("Transformando jovens em criadores de IA")
 
 # 2. Configurações na Sidebar
 st.sidebar.header("Configurações")
-# Usaremos nomes que o Router reconhece mais facilmente
 modelos_disponiveis = {
     "Gemma 7B (Recomendado)": "google/gemma-7b-it",
     "Mistral 7B": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -31,7 +30,6 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
         st.markdown(prompt)
 
     if "HF_TOKEN" in st.secrets:
-        # TENTATIVA 1: URL DO ROUTER
         api_url = f"https://router.huggingface.co/hf-inference/models/{id_modelo}"
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
         
@@ -44,7 +42,6 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
             with st.spinner("Conectando ao Atlas..."):
                 response = requests.post(api_url, headers=headers, json=payload)
                 
-                # Se o Router der 404, tentamos a URL de fallback silenciosamente
                 if response.status_code == 404:
                     api_url_fallback = f"https://api-inference.huggingface.co/models/{id_modelo}"
                     response = requests.post(api_url_fallback, headers=headers, json=payload)
@@ -52,14 +49,15 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
                 if response.status_code == 200:
                     res_json = response.json()
                     resposta = res_json[0].get('generated_text', '') if isinstance(res_json, list) else res_json.get('generated_text', '')
-                    
                     with st.chat_message("assistant"):
                         st.markdown(resposta)
                         st.session_state.messages.append({"role": "assistant", "content": resposta})
-                
                 elif response.status_code == 503:
                     st.warning("O modelo está acordando. Tente novamente em 15 segundos.")
-                elif response.status_code == 403:
-                    st.error("Acesso negado. Este modelo (Llama) exige que você aceite os termos no site do Hugging Face. Tente o Gemma!")
                 else:
-                    st.error(f"Erro {response.status_
+                    st.error(f"Erro {response.status_code}: {response.text}")
+                    
+        except Exception as e:
+            st.error(f"Erro de conexão: {e}")
+    else:
+        st.warning("Verifique o HF_TOKEN nos Secrets do Streamlit.")
