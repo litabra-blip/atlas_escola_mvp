@@ -1,62 +1,61 @@
 import streamlit as st
 import requests
+import time
 
-# Configuração Visual alinhada à Plataforma Atlas
+# Configuração Visual
 st.set_page_config(page_title="Atlas IA MVP", page_icon="🌍")
 
 st.title("🚀 Plataforma Atlas - Camaquã")
 st.subheader("Transformando jovens em criadores de IA")
 
-# Sidebar para configurações
-st.sidebar.header("Configurações do Agente")
-modelo = st.sidebar.selectbox("Escolha o Cérebro (Modelo):", 
+# Sidebar
+st.sidebar.header("Configurações")
+modelo = st.sidebar.selectbox("Escolha o Cérebro:", 
                               ["mistralai/Mistral-7B-Instruct-v0.3", 
                                "meta-llama/Meta-Llama-3-8B-Instruct"])
-
-# Instrução de Comportamento (Etapa 2 - Design do Agente)
-instrucao = """Você é um Agente da Plataforma Atlas em Camaquã/RS. 
-Seu objetivo é ajudar jovens a resolver problemas reais da comunidade 
-usando inovação e ética, conforme as diretrizes da UNESCO."""
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Mostrar histórico de mensagens
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Entrada do usuário
-if prompt := st.chat_input("Como posso ajudar a comunidade hoje?"):
+if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Chamada segura para o Hugging Face usando Secrets
     if "HF_TOKEN" in st.secrets:
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
-        # URL ATUALIZADA AQUI:
-        api_url = f"https://router.huggingface.co/hf-inference/models/{modelo}"
+        api_url = f"https://api-inference.huggingface.co/models/{modelo}" # Voltando para a URL padrão que estabilizou
         
+        instrucao = "Você é um Agente da Plataforma Atlas em Camaquã/RS. Responda em Português."
+        payload = {"inputs": f"{instrucao}\nUsuário: {prompt}\nAgente:", "parameters": {"max_new_tokens": 500}}
+
         try:
-            payload = {"inputs": f"{instrucao}\nUsuário: {prompt}\nAgente:", "parameters": {"max_new_tokens": 500}}
-            response = requests.post(api_url, headers=headers, json=payload)
-            response_json = response.json()
-            
-            if response.status_code == 200:
-                # Trata a resposta que pode vir como lista ou dicionário
-                if isinstance(response_json, list):
-                    full_text = response_json[0]['generated_text']
-                else:
-                    full_text = response_json['generated_text']
+            with st.spinner("IA pensando..."):
+                response = requests.post(api_url, headers=headers, json=payload)
                 
-                resposta = full_text.split("Agente:")[-1].strip()
-                with st.chat_message("assistant"):
-                    st.markdown(resposta)
-                    st.session_state.messages.append({"role": "assistant", "content": resposta})
-            else:
-                st.error(f"Erro da API ({response.status_code}): {response_json}")
+                # Se a resposta não for JSON, pegamos o erro de texto
+                try:
+                    response_json = response.json()
+                except:
+                    st.error(f"Erro no formato da resposta: {response.text}")
+                    st.stop()
+
+                if response.status_code == 200:
+                    res_text = response_json[0]['generated_text'] if isinstance(response_json, list) else response_json['generated_text']
+                    resposta = res_text.split("Agente:")[-1].strip()
+                    with st.chat_message("assistant"):
+                        st.markdown(resposta)
+                        st.session_state.messages.append({"role": "assistant", "content": resposta})
+                
+                elif "estimated_time" in str(response_json):
+                    st.warning("O 'cérebro' da IA está acordando. Aguarde 20 segundos e tente enviar novamente.")
+                else:
+                    st.error(f"Erro {response.status_code}: {response_json}")
         except Exception as e:
-            st.error(f"Erro inesperado: {e}")
+            st.error(f"Erro na conexão: {e}")
     else:
-        st.warning("Aguardando configuração do Token de Acesso (Secrets).")
+        st.warning("Configure o HF_TOKEN nos Secrets.")
