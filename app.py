@@ -37,15 +37,22 @@ if prompt := st.chat_input("Como posso ajudar a comunidade hoje?"):
         headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN']}"}
         api_url = f"https://api-inference.huggingface.co/models/{modelo}"
         
-        try:
+    
+           try:
             payload = {"inputs": f"{instrucao}\nUsuário: {prompt}\nAgente:", "parameters": {"max_new_tokens": 500}}
             response = requests.post(api_url, headers=headers, json=payload)
-            full_text = response.json()[0]['generated_text']
-            resposta = full_text.split("Agente:")[-1].strip()
+            response_json = response.json()
             
-            with st.chat_message("assistant"):
-                st.markdown(resposta)
-                st.session_state.messages.append({"role": "assistant", "content": resposta})
+            if response.status_code == 200:
+                full_text = response_json[0]['generated_text']
+                resposta = full_text.split("Agente:")[-1].strip()
+                with st.chat_message("assistant"):
+                    st.markdown(resposta)
+                    st.session_state.messages.append({"role": "assistant", "content": resposta})
+            else:
+                st.error(f"Erro da API ({response.status_code}): {response_json}")
+        except Exception as e:
+            st.error(f"Erro inesperado: {e}")
         except:
             st.error("Erro ao acessar a IA. Verifique se o Token foi configurado no Streamlit Cloud.")
     else:
