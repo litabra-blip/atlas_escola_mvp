@@ -17,7 +17,7 @@ ENDPOINTS = [
 
 def deve_tentar_proximo_endpoint(status_code: int) -> bool:
     """Define quais códigos devem acionar fallback para o próximo endpoint."""
-    return status_code in (404, 410, 503)
+    return status_code in (404, 410, 429, 503)
 
 
 def consultar_modelo(prompt: str, token: str) -> tuple[requests.Response, str]:
@@ -45,11 +45,13 @@ def consultar_modelo(prompt: str, token: str) -> tuple[requests.Response, str]:
     return ultima_resposta, endpoint_usado
 
 
-def extrair_resposta(res_json: dict[str, Any] | list[dict[str, Any]]) -> str:
+def extrair_resposta(res_json: dict[str, Any] | list[Any]) -> str:
+    output = ""
     if isinstance(res_json, list):
-        output = res_json[0].get("generated_text", "") if res_json else ""
-    else:
-        output = res_json.get("generated_text", "")
+        if res_json and isinstance(res_json[0], dict):
+            output = str(res_json[0].get("generated_text", ""))
+    elif isinstance(res_json, dict):
+        output = str(res_json.get("generated_text", ""))
 
     resposta = output.split("[/INST]")[-1].strip()
     return resposta or "Não consegui gerar resposta agora. Tente novamente em instantes."
@@ -91,7 +93,11 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
                 response, endpoint_usado = consultar_modelo(prompt, st.secrets["HF_TOKEN"])
 
             if response.status_code == 200:
-                resposta = extrair_resposta(response.json())
+                try:
+                    resposta = extrair_resposta(response.json())
+                except ValueError:
+                    resposta = "Não consegui interpretar a resposta do modelo. Tente novamente."
+
                 with st.chat_message("assistant"):
                     st.markdown(resposta)
                     st.session_state.messages.append({"role": "assistant", "content": resposta})
