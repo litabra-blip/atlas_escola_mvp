@@ -11,13 +11,12 @@ ID_MODELO = "mistralai/Mistral-7B-Instruct-v0.2"
 TIMEOUT_SEGUNDOS = 60
 ENDPOINTS = [
     f"https://router.huggingface.co/hf-inference/models/{ID_MODELO}",
-    f"https://api-inference.huggingface.co/models/{ID_MODELO}",
 ]
 
 
 def deve_tentar_proximo_endpoint(status_code: int) -> bool:
     """Define quais códigos devem acionar fallback para o próximo endpoint."""
-    return status_code in (404, 410, 429, 503)
+    return status_code in (429, 503)
 
 
 def consultar_modelo(prompt: str, token: str) -> tuple[requests.Response, str]:
