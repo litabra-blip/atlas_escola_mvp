@@ -1,11 +1,75 @@
-import streamlit as st
+from typing import Any
+
 import requests
+import streamlit as st
 
 st.set_page_config(page_title="Atlas IA", page_icon="🌍")
 st.title("🚀 Plataforma Atlas - Camaquã")
 
-# Modelo com maior taxa de sucesso em tokens gratuitos
-id_modelo = "mistralai/Mistral-7B-Instruct-v0.2"
+# Modelo com boa taxa de sucesso em tokens gratuitos
+ID_MODELO = "mistralai/Mistral-7B-Instruct-v0.2"
+TIMEOUT_SEGUNDOS = 60
+ENDPOINTS = [
+    f"https://router.huggingface.co/hf-inference/models/{ID_MODELO}",
+    f"https://api-inference.huggingface.co/models/{ID_MODELO}",
+]
+
+
+def deve_tentar_proximo_endpoint(status_code: int) -> bool:
+    """Define quais códigos devem acionar fallback para o próximo endpoint."""
+    return status_code in (404, 410, 503)
+
+
+def consultar_modelo(prompt: str, token: str) -> tuple[requests.Response, str]:
+    headers = {"Authorization": f"Bearer {token.strip()}"}
+    payload = {
+        "inputs": f"<s>[INST] Responda em Português: {prompt} [/INST]",
+        "parameters": {"max_new_tokens": 500},
+        "options": {"wait_for_model": True},
+    }
+
+    ultima_resposta: requests.Response | None = None
+    endpoint_usado = ENDPOINTS[0]
+
+    for endpoint in ENDPOINTS:
+        tentativa = requests.post(endpoint, headers=headers, json=payload, timeout=TIMEOUT_SEGUNDOS)
+        ultima_resposta = tentativa
+        endpoint_usado = endpoint
+
+        if not deve_tentar_proximo_endpoint(tentativa.status_code):
+            break
+
+    if ultima_resposta is None:
+        raise RuntimeError("Nenhuma tentativa de inferência foi executada.")
+
+    return ultima_resposta, endpoint_usado
+
+
+def extrair_resposta(res_json: dict[str, Any] | list[dict[str, Any]]) -> str:
+    if isinstance(res_json, list):
+        output = res_json[0].get("generated_text", "") if res_json else ""
+    else:
+        output = res_json.get("generated_text", "")
+
+    resposta = output.split("[/INST]")[-1].strip()
+    return resposta or "Não consegui gerar resposta agora. Tente novamente em instantes."
+
+
+def extrair_detalhe_erro(response: requests.Response) -> str:
+    detalhe = response.text
+    try:
+        body = response.json()
+    except ValueError:
+        return detalhe
+
+    if isinstance(body, dict):
+        if "error" in body:
+            return str(body["error"])
+        if "message" in body:
+            return str(body["message"])
+
+    return detalhe
+
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -19,35 +83,23 @@ if prompt := st.chat_input("Como posso ajudar Camaquã hoje?"):
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    if "HF_TOKEN" in st.secrets:
-        # TENTATIVA DIRETA (Muitas vezes o Router causa 404 se o token for muito recente)
-        api_url = f"https://api-inference.huggingface.co/models/{id_modelo}"
-        headers = {"Authorization": f"Bearer {st.secrets['HF_TOKEN'].strip()}"}
-        
-        payload = {
-            "inputs": f"<s>[INST] Responda em Português: {prompt} [/INST]",
-            "parameters": {"max_new_tokens": 500, "wait_for_model": True}
-        }
-
+    if "HF_TOKEN" not in st.secrets:
+        st.error("Configure o segredo HF_TOKEN no Streamlit Secrets para usar o chat.")
+    else:
         try:
             with st.spinner("Conectando ao Atlas..."):
-                response = requests.post(api_url, headers=headers, json=payload)
-                
-                # Se a URL direta der erro 410, ele pula para o Router
-                if response.status_code == 410:
-                    api_url = f"https://router.huggingface.co/hf-inference/models/{id_modelo}"
-                    response = requests.post(api_url, headers=headers, json=payload)
+                response, endpoint_usado = consultar_modelo(prompt, st.secrets["HF_TOKEN"])
 
-                if response.status_code == 200:
-                    res_json = response.json()
-                    output = res_json[0].get('generated_text', '') if isinstance(res_json, list) else res_json.get('generated_text', '')
-                    resposta = output.split("[/INST]")[-1].strip()
-                    
-                    with st.chat_message("assistant"):
-                        st.markdown(resposta)
-                        st.session_state.messages.append({"role": "assistant", "content": resposta})
-                else:
-                    # Mensagem de diagnóstico real
-                    st.error(f"Erro {response.status_code}: {response.text}")
-        except Exception as e:
-            st.error(f"Erro de conexão: {e}")
+            if response.status_code == 200:
+                resposta = extrair_resposta(response.json())
+                with st.chat_message("assistant"):
+                    st.markdown(resposta)
+                    st.session_state.messages.append({"role": "assistant", "content": resposta})
+            else:
+                detalhe = extrair_detalhe_erro(response)
+                st.error(
+                    f"Erro {response.status_code} no endpoint de inferência. "
+                    f"Endpoint: {endpoint_usado}. Detalhe: {detalhe}"
+                )
+        except requests.RequestException as e:
+            st.error(f"Erro de conexão com o serviço de IA: {e}")
